@@ -8,3 +8,5 @@ The models which I have used are as follows:
 - Elastic Net
 - Random Forest
 - Support Vector MAchine
+
+The dataset link of forest fire is: https://archive.ics.uci.edu/ml/datasets/forest+fires
