@@ -104,7 +104,7 @@ plot(lasso, xvar = "lambda", label=T)
 
 
 
-# Evaluate the model
+
 ypred <- predict(lasso_best, as.matrix(xtest))
 
 ypred <- exp(ypred) - 1
@@ -195,7 +195,7 @@ plot(elastic, xvar = "lambda", label=T)
 
 
 
-# Evaluate the model
+
 ypred.elas <- predict(elas_best, as.matrix(x_test_elas), s= lambda.elastic)
 
 ypred.elas <- exp(ypred.elas) - 1
