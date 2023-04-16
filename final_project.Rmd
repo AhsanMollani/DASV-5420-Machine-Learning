@@ -1,0 +1,329 @@
+---
+title: "FINAL PROJECT ML"
+output: html_document
+date: "2023-04-15"
+---
+
+```{r setup, include=FALSE}
+ pkg_list <- c("MASS", "ISLR", "dplyr", "caret","ggplot2", "corrplot", "boot","car","glmnet", "Metrics","randomForest","e1071")
+# Install packages if needed
+for (pkg in pkg_list)
+{
+# Try loading the library.
+if ( ! library(pkg, logical.return=TRUE, character.only=TRUE) )
+{
+# If the library cannot be loaded, install it; then load.
+install.packages(pkg)
+library(pkg, character.only=TRUE)
+}}
+```
+
+
+## EXPLORATORY DATA ANALYSIS
+
+```{r}
+ft_fire <- read.csv("forestfires.csv",header=T)
+data("f_fire")
+str(ft_fire)
+summary(ft_fire)
+head(ft_fire)
+
+ft_fire$month <- as.numeric(factor(ft_fire$month))
+ft_fire$day <- as.numeric(factor(ft_fire$day))
+ggplot(data = ft_fire, aes(x = area)) +
+  geom_histogram(fill = "blue", color = "black") +
+  labs(title = "Histogram of Area", x = "Area", y = "Count") +
+  theme_bw()
+
+
+
+
+boxplot(ft_fire[, -13], main="Boxplot of Variables", las=2, cex.axis=0.8)
+
+plot(area ~ temp, data = ft_fire, main = "Area by temperature", xlab = "Temperature", ylab = "Area")
+plot(area ~ wind, data = ft_fire, main = "Area by wind speed", xlab = "Wind speed", ylab = "Area")
+plot(area ~ RH, data = ft_fire, main = "Area by humidity", xlab = "Humidity", ylab = "Area")
+tail(ft_fire)
+```
+
+
+## DATA PREPROCESSING
+
+```{r}
+
+set.seed(123)
+
+ Q1 <- quantile(ft_fire$area, 0.25)
+ Q3 <- quantile(ft_fire$area, 0.75)
+ IQR <- Q3 - Q1
+ ft_fire <- ft_fire[ft_fire$area <= Q3 + 1.5*IQR, ]
+ft_fire$log_area <- log(ft_fire$area + 1) 
+
+scaled_predictors <- scale(ft_fire[, -14])
+
+
+fire_nmm <- cbind(scaled_predictors, log_area = as.data.frame(ft_fire$log_area))
+
+
+fire_nmm$log_area <- ft_fire$log_area
+
+
+fire_nmm <- fire_nmm[, -which(names(fire_nmm) == "area")]
+fire_nmm <- fire_nmm[, -which(names(fire_nmm) == "ft_fire$log_area")]
+fire_nmm <- fire_nmm[, -which(names(fire_nmm) == "month")]
+fire_nmm <- fire_nmm[, -which(names(fire_nmm) == "day")]
+
+tail(fire_nmm)
+```
+
+
+## LASSO REGRESSION
+
+
+```{r}
+set.seed(123)
+train_index <- createDataPartition(fire_nmm$log_area, p = 0.7, list = FALSE)
+train <- fire_nmm[train_index, ]
+test <- fire_nmm[-train_index, ]
+
+xtrain <- train[, -11]
+ytrain <- train$log_area
+xtest <- test[, -11]
+ytest <- test$log_area
+
+
+
+lasso <- glmnet(xtrain, ytrain, alpha=1)
+cvv <- cv.glmnet(as.matrix(xtrain), ytrain, alpha=1)
+bestlambda <- cvv$lambda.min
+print(paste0("Optimal lambda: ", bestlambda))
+lasso_best <- glmnet(xtrain, ytrain, alpha=1, lambda=bestlambda)
+
+
+plot(lasso, xvar = "lambda", label=T)
+
+
+
+# Evaluate the model
+ypred <- predict(lasso_best, as.matrix(xtest))
+
+ypred <- exp(ypred) - 1
+mse <- mean( ((exp(ytest) - 1) - ypred)  ^2) 
+RMSE.lasso <- sqrt(mse)
+MAD.lasso <- mean(abs(((exp(ytest)-1)) - ypred))
+
+print(paste0("Optimal lambda: ", bestlambda))
+print(paste0("RMSE: ", RMSE.lasso))
+print(paste0("MSE: ", mse))
+print(paste0("MAD: ", MAD.lasso))
+```
+
+## RIDGE REGRESSION
+
+
+```{r}
+set.seed(123)
+train_indexx <- createDataPartition(fire_nmm$log_area, p = 0.7, list = FALSE)
+train_data <- fire_nmm[train_indexx, ]
+test_data <- fire_nmm[-train_indexx, ]
+
+x_train <- train_data[, -11]
+y_train <- train_data$log_area
+x_test <- test_data[, -11]
+y_test <- test_data$log_area
+
+
+
+ridge <- glmnet(x_train, y_train, alpha=0)
+cvfit <- cv.glmnet(as.matrix(x_train), y_train, alpha=0)
+lambdaa <- cvfit$lambda.min
+
+
+print(paste0("Optimal lambda: ", lambdaa))
+
+ridge_best <- glmnet(x_train, y_train, alpha=0, lambda=lambdaa)
+
+
+plot(ridge, xvar = "lambda", label=T)
+
+
+
+# Evaluate the model
+ypredd <- predict(ridge_best, as.matrix(x_test), s= lambdaa)
+
+ypredd <- exp(ypredd) - 1
+
+mse_r <- mean((((exp(y_test)-1)) - ypredd)^2)
+RMSE.ridge <- sqrt(mse_r)
+MAD.ridge <- mean(abs(((exp(y_test)-1)) - ypredd))
+
+
+print(paste0("Optimal lambda: ", lambdaa))
+print(paste0("MSE: ", mse_r))
+print(paste0("RMSE: ", RMSE.ridge))
+print(paste0("MAD: ", MAD.ridge))
+
+```
+
+## ELASTIC NET
+
+
+```{r}
+set.seed(123)
+train_index.elas <- createDataPartition(fire_nmm$log_area, p = 0.7, list = FALSE)
+train_elas <- fire_nmm[train_index.elas, ]
+test_elas <- fire_nmm[-train_index.elas, ]
+
+x_train_elas <- train_elas[, -11]
+y_train_elas <- train_elas$log_area
+x_test_elas <- test_elas[, -11]
+y_test_elas <- test_elas$log_area
+
+
+
+elastic <- glmnet(x_train_elas, y_train_elas, alpha=0.5)
+cv.elastic <- cv.glmnet(as.matrix(x_train_elas), y_train_elas, alpha=0.5)
+lambda.elastic <- cv.elastic$lambda.min
+
+
+
+
+elas_best <- glmnet(x_train_elas, y_train_elas, alpha=0.5, lambda=lambda.elastic)
+
+
+plot(elastic, xvar = "lambda", label=T)
+
+
+
+# Evaluate the model
+ypred.elas <- predict(elas_best, as.matrix(x_test_elas), s= lambda.elastic)
+
+ypred.elas <- exp(ypred.elas) - 1
+
+elas.mse <- mean((((exp(y_test_elas)-1)) - ypred.elas)^2)
+RMSE.elas <- sqrt(elas.mse)
+MAD.elas <- mean(abs(((exp(y_test_elas)-1)) - ypred.elas))
+
+
+print(paste0("Optimal lambda: ", lambda.elastic))
+print(paste0("MSE: ", elas.mse))
+print(paste0("RMSE: ", RMSE.elas))
+print(paste0("MAD: ", MAD.elas))
+
+
+```
+
+## RANDOM FOREST
+
+
+```{r}
+set.seed(123)
+train_ind <- createDataPartition(fire_nmm$log_area, p = 0.7, list = FALSE)
+train_ran <- fire_nmm[train_ind, ]
+test_ran <- fire_nmm[-train_ind, ]
+
+
+model_ran <- randomForest(log_area ~ ., data = train_ran)
+
+
+
+
+pred_ran <- predict(model_ran, newdata = test_ran)
+
+
+pred_ran <- exp(pred_ran) -1
+
+mse_ran <- mean(((exp(test_ran$log_area)-1) - pred_ran)^2)
+RMSE.ran <- sqrt(mse_ran)
+MAD.ran <- mean(abs((exp(test_ran$log_area)-1) - pred_ran))
+
+print(paste0("MSE: ", mse_ran))
+print(paste0("RMSE: ", RMSE.ran))
+print(paste0("MAD: ", MAD.ran))
+
+```
+
+## SUPPORT VECTOR REGRESSION
+
+
+```{r}
+
+set.seed(123)
+train_ind_svr <- createDataPartition(fire_nmm$log_area, p = 0.7, list = FALSE)
+train_svr <- fire_nmm[train_ind_svr, ]
+test_svr <- fire_nmm[-train_ind_svr, ]
+
+tail(train_svr)
+tunemodel_svr <- tune(svm,log_area ~ ., data = train_svr, kernel = "radial",  ranges = list(cost = c(0.01, 0.1, 1, 10, 100),
+                                epsilon = c(0.1, 0.2, 0.5,0.8, 1)))
+
+print(tunemodel_svr$best.model)
+
+model_svr <- svm(log_area ~ ., data = train_svr, kernel = "radial", cost = 0.1, epsilon = 0.8)
+
+
+pred_svr <- predict(model_svr, newdata = test_svr)
+
+pred_svr <- exp(pred_svr) -1
+
+mse_svr <- mean(((exp(test_svr$log_area)-1) - pred_svr)^2)
+RMSE.svr <- sqrt(mse_svr)
+MAD.svr <- mean(abs((exp(test_svr$log_area)-1) - pred_svr))
+
+print(paste0("MSE: ", mse_svr))
+print(paste0("RMSE: ", RMSE.svr))
+print(paste0("MAD: ", MAD.svr))
+```
+
+## SUMMARIZATION
+
+
+```{r}
+
+models <- c("Random Forest", "Ridge Regression", "Lasso Regression", "SVR", "Elastic Net")
+rmse <- c(3.482, 3.586, 3.621, 3.554, 3.620)
+df <- data.frame(models, rmse)
+
+
+ggplot(df, aes(x = models, y = rmse, fill = models)) +
+  geom_col() +
+  theme_bw() +
+  labs(x = "", y = "RMSE") +
+  scale_fill_manual(values = c("#FF9999", "#66CCCC", "#9999FF", "#E69F00", "#56B4E9")) +
+  geom_text(aes(label = rmse), vjust = -0.5, color = "black", size = 4) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.title = element_text(face = "bold"))
+
+
+mad <- c(2.162, 2.268, 2.286, 2.280, 2.285)
+df1 <- data.frame(models, mad)
+
+
+ggplot(df1, aes(x = models, y = rmse, fill = models)) +
+  geom_col() +
+  theme_bw() +
+  labs(x = "", y = "MAD") +
+  scale_fill_manual(values = c("#FF9999", "#66CCCC", "#9999FF", "#E69F00", "#56B4E9")) +
+  geom_text(aes(label = mad), vjust = -0.5, color = "black", size = 4) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.title = element_text(face = "bold"))
+
+comp <- data.frame(model= c("Lasso","Ridge","Elastic Net", "Random Forest", "Support Vector Regression"), RMSE = c(RMSE.lasso,RMSE.ridge,RMSE.elas,RMSE.ran,RMSE.svr ), MAD = c(MAD.lasso,MAD.ridge,MAD.elas,MAD.ran,MAD.svr))
+comp
+
+
+```
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
